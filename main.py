@@ -1,12 +1,14 @@
 from flask import Flask, request, jsonify, g
 from functools import wraps
-from config import db  # Importa a instância do Firestore do módulo config
-from firebase_admin import auth  # Importa o módulo auth para autenticação
-
-
+from firebase_admin import auth, credentials
+import firebase_admin
+from config import db
 app = Flask(__name__)
 
-# Middleware para verificar se o email foi passado no cabeçalho
+# Inicializa o Firebase Admin SDK com as credenciais do serviço
+cred = credentials.Certificate('vicios-44d19-firebase-adminsdk-tm7ef-71f5ae5d66.json')
+
+# Middleware para verificar se o e-mail está no cabeçalho e é válido
 def email_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
@@ -14,11 +16,17 @@ def email_required(f):
         if not email:
             return jsonify({'error': 'Email is missing!'}), 403
 
-        g.user_email = email  # Associando o email ao contexto global (g)
+        try:
+            # Verifica se o e-mail está registrado
+            user = auth.get_user_by_email(email)
+            g.user_email = email
+            g.user_uid = user.uid
+        except Exception as e:
+            return jsonify({'error': 'Invalid email or user not found'}), 403
+
         return f(*args, **kwargs)
     return decorated
 
-# Rota simples para a raiz do servidor
 @app.route("/", methods=["GET"])
 def home():
     return "API de gerenciamento de estoque funcionando!", 200
@@ -39,12 +47,12 @@ def register():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-# Rota para login do usuário (Note que o login é tratado no lado do cliente via Firebase SDK)
+# Rota para login do usuário (simplesmente retorna uma resposta positiva)
 @app.route('/login', methods=['POST'])
 def login():
-    return jsonify({'status': 'Use client-side Firebase SDK to handle login'}), 200
+    return jsonify({'status': 'Login successful. Use email in headers for authenticated requests.'}), 200
 
-# Rota para criar um novo item no estoque (usando o email do usuário)
+# Rota para criar um novo item no estoque (usando o e-mail do usuário)
 @app.route("/item", methods=["POST"])
 @email_required
 def criar_item():
@@ -53,14 +61,13 @@ def criar_item():
         return jsonify({"error": "Dados do item são obrigatórios!"}), 400
 
     try:
-        # Usa o email como identificador do usuário no banco de dados
         item_ref = db.collection('users').document(g.user_email).collection('items').document()
         item_ref.set(dados)
         return jsonify({"status": "Item adicionado com sucesso!"}), 201
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# Rota para obter um item específico pelo ID (usando o email do usuário)
+# Rota para obter um item específico pelo ID (usando o e-mail do usuário)
 @app.route("/item/<id>", methods=["GET"])
 @email_required
 def obter_item_por_id(id):
@@ -74,7 +81,7 @@ def obter_item_por_id(id):
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# Rota para atualizar um item específico pelo ID (usando o email do usuário)
+# Rota para atualizar um item específico pelo ID (usando o e-mail do usuário)
 @app.route("/item/<id>", methods=["PUT"])
 @email_required
 def atualizar_item_por_id(id):
@@ -86,7 +93,7 @@ def atualizar_item_por_id(id):
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# Rota para remover um item específico pelo ID (usando o email do usuário)
+# Rota para remover um item específico pelo ID (usando o e-mail do usuário)
 @app.route("/item/<id>", methods=["DELETE"])
 @email_required
 def remover_item_por_id(id):
@@ -97,7 +104,7 @@ def remover_item_por_id(id):
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# Rota para listar todos os itens do usuário autenticado (usando o email)
+# Rota para listar todos os itens do usuário autenticado (usando o e-mail)
 @app.route("/itens", methods=["GET"])
 @email_required
 def listar_todos_itens():
